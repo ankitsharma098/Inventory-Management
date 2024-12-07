@@ -18,14 +18,15 @@ enum SortOption {
   priceDescending,
 }
 
-class _ProductListScreenState extends State<ProductListScreen> {
+class _ProductListScreenState extends State<ProductListScreen> with SingleTickerProviderStateMixin{
   List<Product> _allProducts = [];
   List<Product> _filteredProducts = [];
   final ProductService _productService = ProductService();
   final TextEditingController _searchController = TextEditingController();
   bool _isLoading = true;
   String _errorMessage = '';
-
+  late AnimationController _animationController;
+  late Animation<double> _animation;
 
   SortOption _currentSortOption = SortOption.nameAscending;
 
@@ -33,9 +34,31 @@ class _ProductListScreenState extends State<ProductListScreen> {
   void initState() {
     super.initState();
     _searchController.addListener(_debounceSearch);
-    _loadProducts();
-  }
 
+    // Initialize animation controller
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+
+    _animation = CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.elasticOut,
+    );
+
+    _loadProducts().then((_) {
+      // Start the animation once products are loaded
+      _animationController.forward();
+    });
+
+  }
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _searchController.dispose();
+    _animationController.dispose(); // Dispose animation controller
+    super.dispose();
+  }
   // Debounce timer for search
   Timer? _debounceTimer;
 
@@ -112,56 +135,90 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
   Widget _buildSearchBar() {
     return Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: TextField(
-        controller: _searchController,
-        decoration: InputDecoration(
-          hintText: 'Search by name, SKU, or price',
-          prefixIcon: const Icon(Icons.search),
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-            icon: const Icon(Icons.clear),
-            onPressed: () {
-              _searchController.clear();
-              _performSearch('');
-            },
-          )
-              : null,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(12),
-            borderSide: BorderSide(
-              color: Theme
-                  .of(context)
-                  .primaryColor,
-              width: 2,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Hero(
+        tag: 'search-bar',
+        child: Material(
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: 'Search products...',
+              prefixIcon: Icon(
+                Icons.search,
+                color: Theme.of(context).primaryColor,
+              ),
+              suffixIcon: _searchController.text.isNotEmpty
+                  ? IconButton(
+                icon: Icon(
+                  Icons.clear,
+                  color: Theme.of(context).primaryColor,
+                ),
+                onPressed: () {
+                  _searchController.clear();
+                  _performSearch('');
+                },
+              )
+                  : null,
+              filled: true,
+              fillColor: Colors.white,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide.none,
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: Theme.of(context).primaryColor,
+                  width: 2,
+                ),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(16),
+                borderSide: BorderSide(
+                  color: Colors.grey.shade300,
+                  width: 1,
+                ),
+              ),
             ),
+            onChanged: (value) => _debounceSearch(),
           ),
         ),
-        onChanged: (value) => _debounceSearch(),
       ),
     );
   }
 
   Widget _buildProductList() {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: ScaleTransition(
+          scale: _animation,
+          child: const CircularProgressIndicator(),
+        ),
+      );
     }
+
 
     if (_errorMessage.isNotEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            FadeTransition(
+              opacity: _animation,
+              child: const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            ),
             const SizedBox(height: 16),
-            Text(_errorMessage),
+            FadeTransition(
+              opacity: _animation,
+              child: Text(_errorMessage),
+            ),
             const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _loadProducts,
-              child: const Text('Retry'),
+            ScaleTransition(
+              scale: _animation,
+              child: ElevatedButton(
+                onPressed: _loadProducts,
+                child: const Text('Retry'),
+              ),
             ),
           ],
         ),
@@ -170,107 +227,181 @@ class _ProductListScreenState extends State<ProductListScreen> {
 
     if (_filteredProducts.isEmpty) {
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              _searchController.text.isEmpty ? Icons.inventory : Icons
-                  .search_off,
-              size: 100,
-              color: Colors.grey[300],
-            ),
-            const SizedBox(height: 20),
-            Text(
-              _searchController.text.isEmpty
-                  ? 'No Products Available'
-                  : 'No Products Found',
-              style: Theme
-                  .of(context)
-                  .textTheme
-                  .titleLarge,
-            ),
-            if (_searchController.text.isNotEmpty)
-              TextButton(
-                onPressed: () {
-                  _searchController.clear();
-                  _performSearch('');
-                },
-                child: const Text('Clear Search'),
+        child: ScaleTransition(
+          scale: _animation,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 500),
+                curve: Curves.elasticOut,
+                width: 150,
+                height: 150,
+                decoration: BoxDecoration(
+                  color: Colors.grey[200],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  _searchController.text.isEmpty ? Icons.inventory : Icons.search_off,
+                  size: 80,
+                  color: Theme.of(context).primaryColor.withOpacity(0.7),
+                ),
               ),
-          ],
+              const SizedBox(height: 20),
+              FadeTransition(
+                opacity: _animation,
+                child: Text(
+                  _searchController.text.isEmpty
+                      ? 'No Products Available'
+                      : 'No Products Found',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: Colors.grey[700],
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (_searchController.text.isNotEmpty)
+                ScaleTransition(
+                  scale: _animation,
+                  child: TextButton.icon(
+                    icon: Icon(Icons.clear, color: Theme.of(context).primaryColor),
+                    label: Text(
+                      'Clear Search',
+                      style: TextStyle(color: Theme.of(context).primaryColor),
+                    ),
+                    onPressed: () {
+                      _searchController.clear();
+                      _performSearch('');
+                    },
+                  ),
+                ),
+            ],
+          ),
         ),
       );
-    }
+        }
 
-    return ListView.builder(
-      itemCount: _filteredProducts.length,
-      itemBuilder: (context, index) {
-        final product = _filteredProducts[index];
-        return _buildProductCard(product);
-      },
-    );
+        return ListView.builder(
+        itemCount: _filteredProducts.length,
+        itemBuilder: (context, index) {
+          final product = _filteredProducts[index];
+          return FadeTransition(
+            opacity: _animation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.5, 0),
+                end: Offset.zero,
+              ).animate(_animationController),
+              child: _buildProductCard(product),
+            ),
+          );
+        },
+      );
   }
 
   Widget _buildProductCard(Product product) {
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(12),
-        title: Text(
-          product.name,
-          style: Theme
-              .of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(
-            fontWeight: FontWeight.bold,
+    return ScaleTransition(
+      scale: _animation,
+      child: Card(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                Theme.of(context).cardColor,
+                Theme.of(context).cardColor.withOpacity(0.9)
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child:  ListTile(
+            contentPadding: const EdgeInsets.all(16),
+            leading: Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).primaryColor.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              padding: const EdgeInsets.all(12),
+              child: Icon(
+                Icons.inventory_2_outlined,
+                color: Theme.of(context).primaryColor,
+              ),
+            ),
+            title: Text(
+              product.name,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).textTheme.bodyLarge?.color,
+              ),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.barcode_reader,
+                      size: 16,
+                      color: Colors.grey[600],
+                    ),
+                    const SizedBox(width: 8),
+                    Text('SKU: ${product.sku}'),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.attach_money,
+                      size: 16,
+                      color: Colors.green[700],
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '\$${product.price.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        color: Colors.green[700],
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            trailing: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: product.quantity < 5
+                    ? Colors.red.withOpacity(0.1)
+                    : Colors.green.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  if (product.quantity < 5)
+                    Icon(Icons.warning, color: Colors.red[700], size: 16),
+                  Text(
+                    'Qty: ${product.quantity}',
+                    style: TextStyle(
+                      color: product.quantity < 5 ? Colors.red[700] : Colors.green[700],
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            onTap: () => _navigateToAddEditProduct(product: product),
+            onLongPress: () => _showDeleteDialog(product),
           ),
         ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('SKU: ${product.sku}'),
-            Text(
-              '\$${product.price.toStringAsFixed(2)}',
-              style: TextStyle(
-                color: Theme
-                    .of(context)
-                    .primaryColor,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (product.quantity < 5)
-              const Icon(Icons.warning, color: Colors.red),
-            Text(
-              'Qty: ${product.quantity}',
-              style: TextStyle(
-                color: product.quantity < 5 ? Colors.red : null,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ],
-        ),
-        onTap: () => _navigateToAddEditProduct(product: product),
-        onLongPress: () => _showDeleteDialog(product),
       ),
     );
   }
 
-  @override
-  void dispose() {
-    _debounceTimer?.cancel();
-    _searchController.dispose();
-    super.dispose();
-  }
 
   Future<void> _navigateToAddEditProduct({Product? product}) async {
     final result = await Navigator.of(context).push(
@@ -474,8 +605,11 @@ class _ProductListScreenState extends State<ProductListScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _navigateToAddEditProduct(),
-        icon: const Icon(Icons.add),
-        label: const Text('Add Product'),
+        icon: const Icon(Icons.add, color: Colors.white),
+        label: const Text('Add Product', style: TextStyle(color: Colors.white)),
+        backgroundColor: Theme.of(context).primaryColor,
+        elevation: 8,
+        extendedPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       ),
     );
   }
